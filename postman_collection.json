@@ -1,0 +1,630 @@
+{
+  "info": {
+    "name": "Wingz Ride Management API",
+    "description": "Full API collection for the Wingz Ride Management assessment. Covers Login, Users, Rides (with filtering, sorting, pagination), and Ride Events.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth (JWT)",
+      "description": "Login to get JWT access & refresh tokens. The access token is auto-saved and used by all other requests. Use Refresh Token when the access token expires.",
+      "item": [
+        {
+          "name": "Login (Get JWT Tokens)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.access) {",
+                  "    pm.environment.set('token', jsonData.access);",
+                  "    console.log('Access token saved!');",
+                  "}",
+                  "if (jsonData.refresh) {",
+                  "    pm.environment.set('refresh_token', jsonData.refresh);",
+                  "    console.log('Refresh token saved!');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{admin_email}}\",\n  \"password\": \"{{admin_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login", ""]
+            },
+            "description": "Login with email and password. Returns JWT access and refresh tokens. The access token (30 min) is auto-saved to {{token}}. Each login generates NEW tokens."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.access) {",
+                  "    pm.environment.set('token', jsonData.access);",
+                  "    console.log('New access token saved!');",
+                  "}",
+                  "if (jsonData.refresh) {",
+                  "    pm.environment.set('refresh_token', jsonData.refresh);",
+                  "    console.log('New refresh token saved!');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "refresh", ""]
+            },
+            "description": "Use the refresh token to get a new access token when it expires. The new access token is auto-saved."
+          }
+        },
+        {
+          "name": "Test Unauthenticated (401)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""]
+            },
+            "description": "No token — should return 401 Unauthorized."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "description": "CRUD operations for User model",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/users/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", ""]
+            },
+            "description": "Returns a paginated list of all users."
+          }
+        },
+        {
+          "name": "Get User by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/users/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "1", ""]
+            },
+            "description": "Retrieve a single user by their id_user."
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Test\",\n  \"last_name\": \"User\",\n  \"email\": \"testuser@example.com\",\n  \"phone_number\": \"+1234567890\",\n  \"role\": \"user\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", ""]
+            },
+            "description": "Create a new user."
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Updated\",\n  \"last_name\": \"Name\",\n  \"email\": \"testuser@example.com\",\n  \"phone_number\": \"+1234567890\",\n  \"role\": \"user\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "1", ""]
+            },
+            "description": "Update an existing user by id_user."
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/users/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "1", ""]
+            },
+            "description": "Delete a user by id_user."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rides",
+      "description": "CRUD operations and advanced queries for Ride model",
+      "item": [
+        {
+          "name": "List Rides (Default)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""]
+            },
+            "description": "Returns paginated rides with nested rider, driver, and todays_ride_events. Default page_size=10, sorted by -pickup_time."
+          }
+        },
+        {
+          "name": "Get Ride by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", "1", ""]
+            },
+            "description": "Retrieve a single ride by id_ride."
+          }
+        },
+        {
+          "name": "Create Ride",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"en-route\",\n  \"id_rider\": 5,\n  \"id_driver\": 2,\n  \"pickup_latitude\": 14.5995,\n  \"pickup_longitude\": 120.9842,\n  \"dropoff_latitude\": 14.5547,\n  \"dropoff_longitude\": 121.0244,\n  \"pickup_time\": \"2026-03-17T08:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/rides/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""]
+            },
+            "description": "Create a new ride. Accepts id_rider and id_driver as integer foreign keys."
+          }
+        },
+        {
+          "name": "Update Ride",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"pickup\",\n  \"id_rider\": 5,\n  \"id_driver\": 2,\n  \"pickup_latitude\": 14.5995,\n  \"pickup_longitude\": 120.9842,\n  \"dropoff_latitude\": 14.5547,\n  \"dropoff_longitude\": 121.0244,\n  \"pickup_time\": \"2026-03-17T08:30:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/rides/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", "1", ""]
+            },
+            "description": "Update an existing ride by id_ride."
+          }
+        },
+        {
+          "name": "Delete Ride",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", "1", ""]
+            },
+            "description": "Delete a ride by id_ride."
+          }
+        },
+        {
+          "name": "Filter by Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?status=pickup",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pickup"
+                }
+              ]
+            },
+            "description": "Filter rides by status. Valid values: en-route, pickup, dropoff."
+          }
+        },
+        {
+          "name": "Filter by Rider Email",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?rider_email=rider1@example.com",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "rider_email",
+                  "value": "rider1@example.com"
+                }
+              ]
+            },
+            "description": "Filter rides by rider's email address (case-insensitive)."
+          }
+        },
+        {
+          "name": "Filter by Status + Rider Email",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?status=pickup&rider_email=rider1@example.com",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pickup"
+                },
+                {
+                  "key": "rider_email",
+                  "value": "rider1@example.com"
+                }
+              ]
+            },
+            "description": "Combine status and rider_email filters."
+          }
+        },
+        {
+          "name": "Sort by Pickup Time (ASC)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?sort_by=pickup_time&order=asc",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "sort_by",
+                  "value": "pickup_time"
+                },
+                {
+                  "key": "order",
+                  "value": "asc"
+                }
+              ]
+            },
+            "description": "Sort rides by pickup_time ascending (earliest first)."
+          }
+        },
+        {
+          "name": "Sort by Pickup Time (DESC)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?sort_by=pickup_time&order=desc",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "sort_by",
+                  "value": "pickup_time"
+                },
+                {
+                  "key": "order",
+                  "value": "desc"
+                }
+              ]
+            },
+            "description": "Sort rides by pickup_time descending (latest first)."
+          }
+        },
+        {
+          "name": "Sort by Distance (San Francisco)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?sort_by=distance&latitude=37.7749&longitude=-122.4194&order=asc",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "sort_by",
+                  "value": "distance"
+                },
+                {
+                  "key": "latitude",
+                  "value": "37.7749"
+                },
+                {
+                  "key": "longitude",
+                  "value": "-122.4194"
+                },
+                {
+                  "key": "order",
+                  "value": "asc"
+                }
+              ]
+            },
+            "description": "Sort rides by distance from a GPS point (San Francisco). Uses Haversine formula. Nearest rides first."
+          }
+        },
+        {
+          "name": "Sort by Distance (Missing Params - 400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?sort_by=distance",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "sort_by",
+                  "value": "distance"
+                }
+              ]
+            },
+            "description": "Should return 400 Bad Request because latitude and longitude are missing."
+          }
+        },
+        {
+          "name": "Pagination - Page 2",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?page=2",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "Get page 2 of rides (default page_size=10)."
+          }
+        },
+        {
+          "name": "Pagination - Custom Page Size",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?page=1&page_size=5",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "Returns 5 rides per page instead of the default 10. Max page_size is 100."
+          }
+        },
+        {
+          "name": "Filter + Sort + Paginate",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rides/?status=pickup&sort_by=pickup_time&order=asc&page=1&page_size=5",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rides", ""],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pickup"
+                },
+                {
+                  "key": "sort_by",
+                  "value": "pickup_time"
+                },
+                {
+                  "key": "order",
+                  "value": "asc"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "Combines filtering by status, sorting by pickup_time, and pagination — all working together."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ride Events",
+      "description": "CRUD operations for RideEvent model",
+      "item": [
+        {
+          "name": "List Ride Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ride-events/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ride-events", ""]
+            },
+            "description": "Returns a paginated list of all ride events."
+          }
+        },
+        {
+          "name": "Get Ride Event by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ride-events/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ride-events", "1", ""]
+            },
+            "description": "Retrieve a single ride event by id_ride_event."
+          }
+        },
+        {
+          "name": "Create Ride Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_ride\": 1,\n  \"description\": \"Status changed to pickup\",\n  \"created_at\": \"2026-03-17T08:15:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ride-events/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ride-events", ""]
+            },
+            "description": "Create a new ride event for a specific ride."
+          }
+        },
+        {
+          "name": "Update Ride Event",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_ride\": 1,\n  \"description\": \"Status changed to dropoff\",\n  \"created_at\": \"2026-03-17T09:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ride-events/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ride-events", "1", ""]
+            },
+            "description": "Update an existing ride event."
+          }
+        },
+        {
+          "name": "Delete Ride Event",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ride-events/1/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ride-events", "1", ""]
+            },
+            "description": "Delete a ride event by id_ride_event."
+          }
+        }
+      ]
+    }
+  ]
+}

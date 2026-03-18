@@ -1,6 +1,17 @@
 # Wingz Ride Management API
 
-A RESTful API built with Django REST Framework for managing ride information.
+A RESTful API built with Django REST Framework for managing ride information, including ride tracking, driver/rider management, and ride event logging.
+
+## Table of Contents
+
+- [Setup](#setup)
+- [Authentication](#authentication)
+- [API Endpoints](#api-endpoints)
+- [Ride List API Features](#ride-list-api-features)
+- [Design Decisions & Performance Notes](#design-decisions--performance-notes)
+- [Testing](#testing)
+- [Bonus SQL - Trips Over 1 Hour](#bonus-sql---trips-over-1-hour)
+- [Project Structure](#project-structure)
 
 ## Setup
 
@@ -39,11 +50,27 @@ python manage.py runserver
 - **Email:** admin@wingz.com
 - **Password:** admin123
 
+### Running Tests
+
+```bash
+source venv/bin/activate
+python manage.py test rides -v 2
+```
+
+All 20 tests should pass, covering authentication, CRUD operations, filtering, sorting, pagination, and query performance.
+
 ## Authentication
 
 All API endpoints require authentication with a user whose `role` is `"admin"`.
 
-Use HTTP Basic Authentication or session-based auth via Django admin:
+A custom permission class `IsAdminRole` (`rides/permissions.py`) checks three conditions:
+1. The user is present in the request
+2. The user is authenticated
+3. The user's `role` field equals `"admin"`
+
+This permission is set as the **default permission class** in `wingz_project/settings.py`, so it applies globally to all endpoints without needing to specify it per view.
+
+**Usage:**
 
 ```bash
 # Basic Auth example
@@ -83,7 +110,11 @@ Or log in via the Django admin at `/admin/` first, then use the DRF browsable AP
 
 ## Ride List API Features
 
+The `GET /api/rides/` endpoint is the core of this project. It returns a paginated list of rides with nested rider, driver, and today's ride event data — all optimized for minimal database queries.
+
 ### Filtering
+
+Filter rides by status (exact match) or rider email (case-insensitive):
 
 ```
 GET /api/rides/?status=pickup
@@ -91,18 +122,24 @@ GET /api/rides/?rider_email=rider1@example.com
 GET /api/rides/?status=dropoff&rider_email=rider1@example.com
 ```
 
+Filtering is implemented using `django-filter` with a custom `RideFilter` class (`rides/filters.py`) that maps query parameters to model field lookups.
+
 ### Sorting
 
-**By pickup time:**
+Both sorting options are available in the same API via the `sort_by` query parameter.
+
+**By pickup time** (database-level sorting):
 ```
 GET /api/rides/?sort_by=pickup_time&order=asc
 GET /api/rides/?sort_by=pickup_time&order=desc
 ```
 
-**By distance to a GPS position:**
+**By distance to a GPS position** (Haversine formula):
 ```
 GET /api/rides/?sort_by=distance&latitude=37.7749&longitude=-122.4194&order=asc
 ```
+
+The `latitude` and `longitude` parameters are required when using `sort_by=distance`. The API returns a `400 Bad Request` with a clear error message if they are missing or invalid.
 
 ### Pagination
 
@@ -112,46 +149,107 @@ GET /api/rides/?page=2&page_size=20
 
 - Default page size: 10
 - Maximum page size: 100
-- Sorting and filtering work with pagination
+- Pagination works correctly with both sorting and filtering
 
 ## Design Decisions & Performance Notes
 
 ### Query Optimization (2-3 queries total)
 
-The Ride List API is optimized to minimize database queries:
+The Ride List API is optimized to minimize database queries, as required by the assessment:
 
-1. **Query 1 (Rides + Rider + Driver):** Uses `select_related("id_rider", "id_driver")` to fetch rides along with their related rider and driver in a single SQL JOIN query.
+1. **Query 1 — Rides + Rider + Driver (SQL JOIN):** Uses `select_related("id_rider", "id_driver")` to fetch rides along with their related rider and driver in a **single SQL JOIN query**. Without this, each ride would trigger 2 additional queries to fetch the rider and driver (N+1 problem).
 
-2. **Query 2 (Today's Ride Events):** Uses `Prefetch` with a filtered queryset to fetch only RideEvents from the last 24 hours. This avoids loading the entire (potentially very large) RideEvent table.
+2. **Query 2 — Today's Ride Events (Prefetch):** Uses Django's `Prefetch` object with a **filtered queryset** to fetch only RideEvents created in the last 24 hours. This is stored in the `todays_ride_events` attribute on each ride. The key optimization here is that it executes a **single additional query** with an `IN` clause for all ride IDs on the current page, rather than one query per ride.
 
-3. **Query 3 (Count for pagination):** Standard pagination count query.
+3. **Query 3 — Count (Pagination):** Standard `COUNT(*)` query required by DRF's `PageNumberPagination` to calculate total pages.
 
-This means the API executes only **2 queries** for data retrieval + **1 query** for the pagination count, regardless of how many rides are returned.
+**Result:** The API executes only **2 queries for data** + **1 query for pagination count** = **3 queries total**, regardless of how many rides are on the page. This is verified by a test using `assertNumQueries(3)`.
 
 ### `todays_ride_events` Field
 
-Instead of returning all RideEvents for each Ride (which could be millions of records), the API returns a `todays_ride_events` field that contains only events from the last 24 hours. This is achieved using Django's `Prefetch` object with a filtered queryset, which adds a single prefetch query rather than N+1 queries.
+The assessment states that the RideEvent table will be very large. Instead of returning all RideEvents for each Ride (which could be millions of records and cause severe performance issues), the API returns a `todays_ride_events` field containing **only events from the last 24 hours**.
+
+This is achieved using Django's `Prefetch` object:
+```python
+Prefetch(
+    "ride_events",
+    queryset=RideEvent.objects.filter(created_at__gte=twenty_four_hours_ago),
+    to_attr="todays_ride_events",
+)
+```
+
+The `to_attr` parameter stores the prefetched results as a Python list attribute, and the filtered queryset ensures only recent events are loaded from the database.
+
+### Two Serializers for Ride
+
+The project uses two separate serializers for the Ride model:
+
+- **`RideSerializer`** — Used for `create`, `update`, `retrieve`, and `delete` operations. Accepts foreign key IDs (integers) for `id_rider` and `id_driver`.
+- **`RideListSerializer`** — Used only for the `list` action. Returns nested `UserSerializer` objects for rider/driver and includes `todays_ride_events`. This serializer reads from the prefetched data to avoid additional queries.
+
+This separation is handled in the ViewSet's `get_serializer_class()` method.
 
 ### Distance Sorting Strategy
 
-Since SQLite doesn't support native geospatial functions, distance calculation uses the Haversine formula in Python. For large datasets, the approach is:
+Since SQLite doesn't support native geospatial functions (like PostGIS's `ST_Distance`), distance calculation uses the **Haversine formula** in Python. The challenge was implementing this efficiently for large tables while maintaining correct pagination.
 
-1. Fetch only PKs + coordinates (lightweight query)
-2. Compute distances and sort in Python
-3. Paginate the sorted list
-4. Fetch full objects only for the current page
+**Two-pass approach:**
 
-For production with PostgreSQL, this would be replaced with PostGIS `ST_Distance` annotations for database-level sorting. The current approach still respects pagination and doesn't load all ride data into memory.
+1. **Pass 1 (Lightweight):** Fetch only `id_ride`, `pickup_latitude`, and `pickup_longitude` using `values_list()`. Apply filters first to reduce the working set.
+2. **Compute & Sort:** Calculate Haversine distance for each ride and sort in Python.
+3. **Paginate IDs:** Slice the sorted ID list based on the requested page number and page size.
+4. **Pass 2 (Full objects):** Fetch complete ride objects (with `select_related` and `Prefetch`) only for the IDs on the current page.
+
+This ensures that even with millions of rides, we only load full data for the rides on the current page (default 10). The response format matches DRF's standard pagination (`count`, `next`, `previous`, `results`).
+
+**For production with PostgreSQL**, this would be replaced with PostGIS `ST_Distance` annotations for database-level sorting, which would be more efficient.
 
 ### Custom User Model
 
-The project uses a custom User model extending `AbstractBaseUser` to match the assessment's User table schema (with `id_user` as PK, `role` field, etc.) while still being compatible with Django's auth system.
+The project uses a custom User model (`rides/models.py`) extending `AbstractBaseUser` and `PermissionsMixin` to match the assessment's User table schema with:
+- `id_user` as the primary key (instead of Django's default `id`)
+- `role` field for role-based access control
+- `email` as the `USERNAME_FIELD` (instead of `username`)
+- Custom `UserManager` for `create_user` and `create_superuser`
+
+The custom `db_table = "user"` and `db_column` settings on foreign keys ensure the generated database schema matches the assessment's table definitions exactly.
+
+### Database Indexes
+
+Indexes are added on frequently queried fields to improve performance:
+
+**Ride table:**
+- `status` — used for filtering
+- `pickup_time` — used for sorting
+- `id_rider` — used for filtering by rider email (JOIN)
+- `id_driver` — used for driver lookups
+
+**RideEvent table:**
+- `created_at` — used for the 24-hour filter in `todays_ride_events`
+- `id_ride` — used for the prefetch JOIN
+
+## Testing
+
+The test suite (`rides/tests.py`) contains **20 tests across 9 test classes**:
+
+| Test Class | Tests | What It Verifies |
+|---|---|---|
+| `AuthenticationTest` | 3 | Unauthenticated users get 403, non-admin users get 403, admin users get 200 |
+| `RideListTest` | 3 | Rides are returned, nested rider/driver data is included, `todays_ride_events` only contains events from the last 24 hours |
+| `RideFilterTest` | 3 | Filtering by status, by rider email, and combined filtering |
+| `RideSortingTest` | 4 | Sorting by pickup_time (asc/desc), sorting by distance, error handling for missing params |
+| `RidePaginationTest` | 2 | Pagination response format (count/next/previous/results), custom `page_size` parameter |
+| `RideQueryPerformanceTest` | 1 | Verifies the Ride List API uses exactly 3 database queries via `assertNumQueries(3)` |
+| `UserCRUDTest` | 2 | List and retrieve users |
+| `RideEventCRUDTest` | 2 | List and retrieve ride events |
 
 ## Bonus SQL - Trips Over 1 Hour
 
 The following raw SQL query returns the count of trips that took more than 1 hour from Pickup to Dropoff, grouped by Month and Driver.
 
 The trip duration is calculated by finding the time difference between the "Status changed to pickup" and "Status changed to dropoff" RideEvents for each ride.
+
+### SQLite Version
 
 ```sql
 SELECT
@@ -172,7 +270,7 @@ GROUP BY month, u.id_user
 ORDER BY month, driver;
 ```
 
-**PostgreSQL version** (for production):
+### PostgreSQL Version (for production)
 
 ```sql
 SELECT
@@ -193,38 +291,43 @@ GROUP BY month, u.id_user, driver
 ORDER BY month, driver;
 ```
 
-### How It Works
+### How the SQL Works
 
-- **Pickup time** is determined by the RideEvent with description "Status changed to pickup"
-- **Dropoff time** is determined by the RideEvent with description "Status changed to dropoff"
-- The query joins both events to the same ride, calculates the time difference, and filters for trips exceeding 1 hour
-- Results are grouped by month (YYYY-MM format) and driver (first name + last initial)
+1. **JOINs:** The `ride` table is joined with two instances of `ride_event` — one for the pickup event and one for the dropoff event — matched by `id_ride` and the event `description`.
+2. **Duration Calculation:** The time difference between the dropoff and pickup event timestamps is computed. In SQLite, `julianday()` converts to fractional days (multiplied by 24 for hours). In PostgreSQL, `EXTRACT(EPOCH FROM ...)` gives seconds (divided by 3600 for hours).
+3. **Filtering:** Only trips where the duration exceeds 1 hour are included.
+4. **Grouping:** Results are grouped by month (`YYYY-MM` format) and driver (`id_user`), with the driver name displayed as first name + last initial.
+5. **Two versions are provided** because SQLite and PostgreSQL have different date/time functions. The SQLite version is used for development; the PostgreSQL version is for production.
 
 ## Project Structure
 
 ```
 wingz/
-├── manage.py
-├── requirements.txt
-├── README.md
+├── manage.py                  # Django management script
+├── requirements.txt           # Python dependencies
+├── README.md                  # This file
+├── db.sqlite3                 # SQLite database (created after migrate)
 ├── wingz_project/
 │   ├── __init__.py
-│   ├── settings.py
-│   ├── urls.py
-│   └── wsgi.py
+│   ├── settings.py            # Django & DRF configuration
+│   ├── urls.py                # Root URL configuration
+│   └── wsgi.py                # WSGI entry point
 └── rides/
     ├── __init__.py
-    ├── admin.py
-    ├── apps.py
-    ├── filters.py
-    ├── models.py
-    ├── permissions.py
-    ├── serializers.py
-    ├── urls.py
-    ├── views.py
+    ├── admin.py               # Django admin registration
+    ├── apps.py                # App configuration
+    ├── filters.py             # RideFilter (django-filter)
+    ├── models.py              # User, Ride, RideEvent models
+    ├── permissions.py         # IsAdminRole permission class
+    ├── serializers.py         # DRF serializers
+    ├── tests.py               # Test suite (20 tests)
+    ├── urls.py                # API URL routing (DRF router)
+    ├── views.py               # ViewSets with query optimization
     ├── migrations/
-    │   └── __init__.py
+    │   ├── __init__.py
+    │   ├── 0001_initial.py
+    │   └── 0002_alter_ride_options_alter_rideevent_options_and_more.py
     └── management/
         └── commands/
-            └── seed_data.py
+            └── seed_data.py   # Database seeder (50 rides, 14 users)
 ```

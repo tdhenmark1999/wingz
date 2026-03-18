@@ -1,9 +1,11 @@
 import math
 
+from django.db import IntegrityError
 from django.db.models import F, Prefetch
 from django.utils import timezone
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
 
 from .filters import RideFilter
 from .models import Ride, RideEvent, User
@@ -18,6 +20,20 @@ from .serializers import (
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+        try:
+            user.delete()
+        except IntegrityError:
+            return Response(
+                {
+                    "error": "Cannot delete this user because they have associated rides. "
+                    "Remove or reassign their rides first."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RideEventViewSet(viewsets.ModelViewSet):

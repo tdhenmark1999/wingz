@@ -107,7 +107,7 @@ class AuthenticationTest(BaseTestCase):
 
     def test_unauthenticated_access_denied(self):
         response = self.client.get("/api/rides/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
     def test_non_admin_access_denied(self):
         self.client.force_authenticate(user=self.regular_user)
